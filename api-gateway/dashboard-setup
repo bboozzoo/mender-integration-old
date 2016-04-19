@@ -1,0 +1,98 @@
+#!/usr/bin/env python
+
+import requests
+import argparse
+import logging
+import json
+from urlparse import urljoin
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(description='')
+    parser.add_argument('-s', '--server', default='http://localhost:3000/',
+                        help='Server address')
+    parser.add_argument('-a', '--admin-auth', default='12345',
+                        help='Admin secret')
+
+    return parser.parse_args()
+
+
+def main(opts):
+
+    user = {
+        'first_name': 'Admin',
+        'last_name': 'Admin',
+        'email_address': 'admin@mender.io',
+        'active': True,
+    }
+
+    headers = {
+        'admin-auth': opts.admin_auth,
+    }
+
+    logging.info('adding organization')
+
+    org = {
+        'owner_name': 'mender.io',
+        'owner_slug': 'mender',
+        'cname_enabled': True
+    }
+    r = requests.post(urljoin(opts.server, '/admin/organisations'),
+                      json=org,
+                      headers=headers)
+
+    logging.debug('response: %r', r.json())
+
+    org_id = r.json()['Meta']
+
+    logging.info('assuming org ID: %s', org_id)
+
+    logging.info('adding user %s', user)
+
+    r = requests.post(urljoin(opts.server, '/admin/users'),
+                      json=user,
+                      headers=headers)
+
+    logging.debug('response: %r', r.json())
+    logging.info('user added')
+
+    udata = r.json()['Meta']
+    if udata['org_id'] != org_id:
+        org_id = udata['org_id']
+        logging.warning('updating to user organization ID %s', org_id)
+
+    uauth = r.json()['Message']
+
+    logging.info('listing users')
+    uheaders = {
+        'authorization': uauth,
+    }
+
+    r = requests.get(urljoin(opts.server, '/api/users'),
+                     headers=uheaders)
+    logging.debug('response: %r', r.json())
+
+    # expecting one user
+    if len(r.json()['users']) > 0:
+        logging.error('unexpected user count')
+
+    uid = r.json()['users'][0]['id']
+    logging.info('admin user ID: %s', uid)
+
+    new_password = {
+        'new_password': 'admin12345',
+    }
+    logging.debug('changing password')
+    r = requests.post(urljoin(opts.server, '/api/users/{}/actions/reset'.format(uid)),
+                     headers=uheaders,
+                     json=new_password)
+    logging.debug('response: %r', r.json())
+
+
+if __name__ == '__main__':
+    opts = parse_arguments()
+
+    level = logging.DEBUG
+
+    logging.basicConfig(level=level)
+    main(opts)
+
